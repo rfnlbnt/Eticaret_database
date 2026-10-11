@@ -1,0 +1,146 @@
+Soru 1: Hangi şehirde ne kadarlık satış yapıldığı bilgisi
+
+SELECT 
+    C.CITY, 
+    SUM(O.TOTALPRICE) AS TOTALSALE
+FROM ORDERS O
+JOIN ADDRESS A ON O.ADDRESSID = A.ID
+JOIN CITIES C ON A.CITYID = C.ID
+GROUP BY C.CITY
+ORDER BY TOTALSALE DESC;
+
+Soru 2: Şehirlere göre hangi ayda ne kadarlık satış yapıldığı bilgisi
+
+SELECT 
+    C.CITY, 
+    DATENAME(MONTH, O.DATE) AS MONTHNAME, 
+    SUM(O.TOTALPRICE) AS TOTALSALE
+FROM ORDERS O
+JOIN ADDRESS A ON O.ADDRESSID = A.ID
+JOIN CITIES C ON A.CITYID = C.ID
+GROUP BY C.CITY, DATENAME(MONTH, O.DATE), MONTH(O.DATE)
+ORDER BY C.CITY, MONTH(O.DATE);
+
+Soru 3: Şehirlerin haftanın günlerine göre ne kadarlık satış yaptığı bilgisi (Satır bazlı liste)
+
+SELECT 
+    C.CITY, 
+    DATENAME(WEEKDAY, O.DATE) AS DAYOFWEEK, 
+    SUM(O.TOTALPRICE) AS TOTALSALE
+FROM ORDERS O
+JOIN ADDRESS A ON O.ADDRESSID = A.ID
+JOIN CITIES C ON A.CITYID = C.ID
+GROUP BY C.CITY, DATENAME(WEEKDAY, O.DATE), DATEPART(WEEKDAY, O.DATE)
+ORDER BY C.CITY, DATEPART(WEEKDAY, O.DATE);
+
+Soru 4: Şehirlerin haftanın günlerine göre satışlarının gün bazında sütunlara dökülmesi (PIVOT)
+
+SELECT 
+    CITY,
+    ISNULL([Pazartesi], 0) AS PAZARTESİ,
+    ISNULL([Salı], 0) AS SALI,
+    ISNULL([Çarşamba], 0) AS ÇARŞAMBA,
+    ISNULL([Perşembe], 0) AS PERŞEMBE,
+    ISNULL([Cuma], 0) AS CUMA,
+    ISNULL([Cumartesi], 0) AS CUMARTESİ,
+    ISNULL([Pazar], 0) AS PAZAR
+FROM (
+    SELECT 
+        C.CITY, 
+        DATENAME(WEEKDAY, O.DATE) AS DAYOFWEEK, 
+        O.TOTALPRICE
+    FROM ORDERS O
+    JOIN ADDRESS A ON O.ADDRESSID = A.ID
+    JOIN CITIES C ON A.CITYID = C.ID
+) AS SourceTable
+PIVOT (
+    SUM(TOTALPRICE)
+    FOR DAYOFWEEK IN ([Pazartesi], [Salı], [Çarşamba], [Perşembe], [Cuma], [Cumartesi], [Pazar])
+) AS PivotTable
+ORDER BY CITY;
+
+SELECT 
+    CITY,
+    ISNULL([Pazartesi], 0) AS PAZARTESİ,
+    ISNULL([Salı], 0) AS SALI,
+    ISNULL([Çarşamba], 0) AS ÇARŞAMBA,
+    ISNULL([Perşembe], 0) AS PERŞEMBE,
+    ISNULL([Cuma], 0) AS CUMA,
+    ISNULL([Cumartesi], 0) AS CUMARTESİ,
+    ISNULL([Pazar], 0) AS PAZAR
+FROM (
+    SELECT 
+        C.CITY, 
+        DATENAME(WEEKDAY, O.DATE) AS DAYOFWEEK, 
+        O.TOTALPRICE
+    FROM ORDERS O
+    JOIN ADDRESS A ON O.ADDRESSID = A.ID
+    JOIN CITIES C ON A.CITYID = C.ID
+) AS SourceTable
+PIVOT (
+    SUM(TOTALPRICE)
+    FOR DAYOFWEEK IN ([Pazartesi], [Salı], [Çarşamba], [Perşembe], [Cuma], [Cumartesi], [Pazar])
+) AS PivotTable
+ORDER BY CITY;
+
+Soru 5: Her ilin en çok satan ilk 5 kategorisi (CATEGORY1)
+
+WITH CityCategorySales AS (
+    SELECT 
+        C.CITY,
+        I.CATEGORY1,
+        SUM(OD.LINETOTAL) AS TOTALSALE,
+        ROW_NUMBER() OVER(PARTITION BY C.CITY ORDER BY SUM(OD.LINETOTAL) DESC) AS RowNum
+    FROM ORDERS O
+    JOIN ADDRESS A ON O.ADDRESSID = A.ID
+    JOIN CITIES C ON A.CITYID = C.ID
+    JOIN ORDERDETAILS OD ON O.ID = OD.ORDERID
+    JOIN ITEMS I ON OD.ITEMID = I.ID
+    GROUP BY C.CITY, I.CATEGORY1
+)
+SELECT 
+    CITY, 
+    CATEGORY1, 
+    TOTALSALE
+FROM CityCategorySales
+WHERE RowNum <= 5
+ORDER BY CITY, TOTALSALE DESC;
+
+Soru 6: Her şehirde en çok satış yapılan ilk 3 kategori ve her birinin altında en çok satan ilk 3 alt kategori (CATEGORY2)
+
+WITH TopCategories AS (
+    SELECT 
+        C.CITY,
+        I.CATEGORY1,
+        ROW_NUMBER() OVER(PARTITION BY C.CITY ORDER BY SUM(OD.LINETOTAL) DESC) AS CatRank
+    FROM ORDERS O
+    JOIN ADDRESS A ON O.ADDRESSID = A.ID
+    JOIN CITIES C ON A.CITYID = C.ID
+    JOIN ORDERDETAILS OD ON O.ID = OD.ORDERID
+    JOIN ITEMS I ON OD.ITEMID = I.ID
+    GROUP BY C.CITY, I.CATEGORY1
+),
+SubCategorySales AS (
+    SELECT 
+        C.CITY,
+        I.CATEGORY1,
+        I.CATEGORY2,
+        SUM(OD.LINETOTAL) AS TOTALSALE,
+        ROW_NUMBER() OVER(PARTITION BY C.CITY, I.CATEGORY1 ORDER BY SUM(OD.LINETOTAL) DESC) AS SubCatRank
+    FROM ORDERS O
+    JOIN ADDRESS A ON O.ADDRESSID = A.ID
+    JOIN CITIES C ON A.CITYID = C.ID
+    JOIN ORDERDETAILS OD ON O.ID = OD.ORDERID
+    JOIN ITEMS I ON OD.ITEMID = I.ID
+    JOIN TopCategories TC ON C.CITY = TC.CITY AND I.CATEGORY1 = TC.CATEGORY1
+    WHERE TC.CatRank <= 3
+    GROUP BY C.CITY, I.CATEGORY1, I.CATEGORY2
+)
+SELECT 
+    CITY,
+    CATEGORY1,
+    CATEGORY2,
+    TOTALSALE
+FROM SubCategorySales
+WHERE SubCatRank <= 3
+ORDER BY CITY, CATEGORY1, TOTALSALE DESC;
